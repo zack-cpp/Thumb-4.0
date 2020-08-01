@@ -1,12 +1,13 @@
 #include <Keyboard.h>
 #include <EEPROM.h>
+#include <SoftwareSerial.h>
 #include <Adafruit_Fingerprint.h>
 
-#if defined(__AVR__) || defined(ESP8266)
-SoftwareSerial mySerial(2,3);
-#else
-#define mySerial Serial1
-#endif
+//#if defined(__AVR__) || defined(ESP8266)
+SoftwareSerial mySerial(8,9);
+//#else
+//#define mySerial Serial1
+//#endif
 
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
@@ -23,8 +24,10 @@ struct Data{
   bool state = false;
   bool readState = false;
 
-  void writeEEPROM(int addr, const String &kata);
+  char toSend[25];
+
   String readPasswordFromEEPROM(int addr);
+  void writeEEPROM(int addr, const String &kata);
   void readIsi();
   void init();
   void enroll();
@@ -39,20 +42,21 @@ struct Data{
 
 void setup() {
   Serial.begin(9600);
+  Serial1.begin(9600);
   finger.begin(57600);
 //  Keyboard.begin();
   if(finger.verifyPassword()){
-
+//    Serial.println("Sensor found");
   }else{
-
+//    Serial.println("Sensor not found");
     while(1){delay(1);}
   }
   
   finger.getTemplateCount();
   if(finger.templateCount == 0){
-
+//    Serial.println("Enroll fingerprint");
   }else{
-
+//    Serial.println("Setup ready");
   }
 }
 
@@ -68,7 +72,11 @@ void loop() {
       data.readFinger();
       if(data.readState){
         data.readPasswordFromEEPROM(0);
-//        Keyboard.write(data.eepromVal.c_str());
+        data.eepromVal.toCharArray(data.toSend, sizeof(data.toSend));
+        for(unsigned short int i = 0; i < sizeof(data.toSend); i++){
+          Keyboard.write(data.toSend[i]);
+        }
+	      Keyboard.write(176);
       }
       data.readState = false;
     }
@@ -104,13 +112,13 @@ String Data::readPasswordFromEEPROM(int addr){
 }
 
 void Data::readOption(){
-  while(Serial.available()){
-    data.option = Serial.readStringUntil('\n');
+  while(Serial1.available()){
+    data.option = Serial1.readStringUntil('\n');
   }
 }
 
 void Data::enroll(){
-  Serial.write("FG_PLACE_NEW_FINGER");
+  Serial1.write("FG_PLACE_NEW_FINGER");
   int p = -1;
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
@@ -154,7 +162,7 @@ void Data::enroll(){
       return p;
   }
 //  Serial.println("remove finger");
-  Serial.write("FG_REMOVE_FINGER");
+  Serial1.write("FG_REMOVE_FINGER");
   delay(2000);
   p = 0;
   while(p != FINGERPRINT_NOFINGER){
@@ -162,7 +170,7 @@ void Data::enroll(){
   }
   p = -1;
 //  Serial.println("place same finger again");
-  Serial.write("FG_PLACE_SAME_FINGER");
+  Serial1.write("FG_PLACE_SAME_FINGER");
   while (p != FINGERPRINT_OK) {
     p = finger.getImage();
     switch (p) {
@@ -220,7 +228,7 @@ void Data::enroll(){
   p = finger.storeModel(1);
   if (p == FINGERPRINT_OK) {
 //    Serial.println("Stored!");
-    Serial.write("FG_SUCCESS");
+    Serial1.write("FG_SUCCESS");
   } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
 //    Serial.println("Communication error");
     return p;
@@ -260,34 +268,36 @@ void Data::readFinger(){
 }
 
 void Data::init(){
-  if(EEPROM.read(50) == 0){
-    if(data.option == "1"){
+  if(data.option == "1"){
+    if(EEPROM.read(50) == 0){
       data.enroll();
-      Serial.write("INIT_NEW_PASS");
+      delay(2000);
+      Serial1.write("INIT_NEW_PASS");
       data.readSerial();
       for(int i = 0; i < EEPROM.length(); i++){
         EEPROM.write(i,0);
       }
       data.writeEEPROM(0,data.serialVal.c_str());
       EEPROM.write(50,1);
-      Serial.write("INIT_SUCCESS");
+      data.option = "0";
+      Serial1.write("INIT_SUCCESS");
+    }else{
+      Serial1.write("INIT_REJECTED");
     }
-  }else{
-    Serial.write("INIT_REJECTED");
   }
 }
 
 void Data::changePassword(){
   if(data.option == "2"){
     //send PLACE_FINGER
-    Serial.write("PW_PLACE_FINGER");
+    Serial1.write("PW_PLACE_FINGER");
     while(data.readState == false){
       data.readFinger();
     }
-    Serial.write(data.readPasswordFromEEPROM(0).c_str());
+    Serial1.write(data.readPasswordFromEEPROM(0).c_str());
     delay(2000);
     
-    Serial.write("PW_NEW_PASS");
+    Serial1.write("PW_NEW_PASS");
     data.readSerial();
     for (int i = 0 ; i < EEPROM.length() ; i++) {
       EEPROM.write(i, 0);
@@ -295,7 +305,7 @@ void Data::changePassword(){
     EEPROM.write(50,1);
     data.writeEEPROM(0,data.serialVal.c_str());
     data.option = "0";
-    Serial.write("PW_SUCCESS");
+    Serial1.write("PW_SUCCESS");
   }
 //  data.resetFunc();
 }
@@ -303,17 +313,21 @@ void Data::changePassword(){
 void Data::changeFinger(){
   int p = 0;
   if(data.option == "3"){
-    Serial.write("FG_PLACE_OLD_FINGER");
+    Serial1.write("FG_PLACE_OLD_FINGER");
     while(data.readState == false){
       data.readFinger();
     }
     finger.emptyDatabase();
-    Serial.write("FG_REMOVE_FINGER");
+    Serial1.write("FG_REMOVE_FINGER");
     delay(2000);
     while(p != FINGERPRINT_NOFINGER){
       p = finger.getImage();
     }
     data.enroll();
+    p = 0;
+    while(p != FINGERPRINT_NOFINGER){
+      p = finger.getImage();
+    }
   }
   data.option = "0";
   data.readState = false;
@@ -322,10 +336,10 @@ void Data::changeFinger(){
 
 void Data::readSerial(){
   data.serialVal = "";
-  while(!Serial.available()){
+  while(!Serial1.available()){
       delay(10);
     }
-    while(Serial.available()){
-      data.serialVal = Serial.readStringUntil('\n');
+    while(Serial1.available()){
+      data.serialVal = Serial1.readStringUntil('\n');
     }
 }
