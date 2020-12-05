@@ -3,6 +3,7 @@
  * Address 0 -> 24  : Password
  * Address 50       : There's fingerprint or not
  * Address 51       : Fingerprint amount
+ * Formula			: i*5-4
  */
 
 #include <Keyboard.h>
